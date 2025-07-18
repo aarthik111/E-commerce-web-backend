@@ -1,4 +1,3 @@
-// index.js
 require("dotenv").config();
 const express = require("express");
 const mongoose = require("mongoose");
@@ -12,13 +11,21 @@ const bcrypt = require("bcrypt");
 const app = express();
 const port = process.env.PORT || 4000;
 
-app.use(cors());
+// ✅ CORS setup with deployed frontend & admin URLs
+app.use(cors({
+  origin: [
+    'https://e-commerce-web-frontend-hs4r.onrender.com',
+    'https://e-commerce-web-admin-e9pb.onrender.com'
+  ],
+  credentials: true
+}));
+
 app.use(express.json());
 
-// ========== MongoDB Connection ==========
+// MongoDB
 mongoose.connect(process.env.MONGODB_URI);
 
-// ========== Global Email Transporter ==========
+// Email Transporter
 const transporter = nodemailer.createTransport({
   host: 'smtp-relay.brevo.com',
   port: 587,
@@ -32,14 +39,13 @@ const transporter = nodemailer.createTransport({
   }
 });
 
-// ========== OTP Store ==========
 const otpStore = new Map();
 
-// ========== Image Upload Setup ==========
+// Image Upload Setup
 const storage = multer.diskStorage({
   destination: './upload/images',
   filename: (req, file, cb) => {
-    return cb(null, `${file.fieldname}_${Date.now()}${path.extname(file.originalname)}`);
+    cb(null, `${file.fieldname}_${Date.now()}${path.extname(file.originalname)}`);
   }
 });
 const upload = multer({ storage });
@@ -48,11 +54,11 @@ app.use('/images', express.static('upload/images'));
 app.post("/upload", upload.single('product'), (req, res) => {
   res.json({
     success: 1,
-    image_url: `http://localhost:${port}/images/${req.file.filename}`
+    image_url: `${req.protocol}://${req.get('host')}/images/${req.file.filename}`
   });
 });
 
-// ========== Schemas ==========
+// Mongoose Models
 const Product = mongoose.model("Product", {
   id: Number,
   name: String,
@@ -72,7 +78,7 @@ const Users = mongoose.model("Users", {
   date: { type: Date, default: Date.now }
 });
 
-// ========== Send OTP ==========
+// Send OTP
 app.post('/send-otp', async (req, res) => {
   const { email } = req.body;
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
@@ -94,7 +100,7 @@ app.post('/send-otp', async (req, res) => {
   }
 });
 
-// ========== Verify OTP & Signup ==========
+// Verify OTP & Signup
 app.post('/verify-otp-signup', async (req, res) => {
   const { name, email, password, otp } = req.body;
   const otpData = otpStore.get(email);
@@ -103,12 +109,11 @@ app.post('/verify-otp-signup', async (req, res) => {
     return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
   }
 
-  let check = await Users.findOne({ email });
-  if (check) return res.status(400).json({ success: false, message: "User already exists" });
+  const existingUser = await Users.findOne({ email });
+  if (existingUser) return res.status(400).json({ success: false, message: "User already exists" });
 
   const hashedPassword = await bcrypt.hash(password, 10);
-
-  let cart = {};
+  const cart = {};
   for (let i = 0; i < 300; i++) cart[i] = 0;
 
   const user = new Users({ name, email, password: hashedPassword, cartData: cart });
@@ -119,30 +124,28 @@ app.post('/verify-otp-signup', async (req, res) => {
   res.json({ success: true, token });
 });
 
-// ========== Login ==========
+// Login
 app.post('/login', async (req, res) => {
-  let user = await Users.findOne({ email: req.body.email });
-  if (user) {
-    const isMatch = await bcrypt.compare(req.body.password, user.password);
-    if (isMatch) {
-      const token = jwt.sign({ user: { id: user._id } }, process.env.JWT_SECRET);
-      return res.json({ success: true, token });
-    } else {
-      return res.json({ success: false, error: "Wrong Password" });
-    }
-  } else {
-    return res.json({ success: false, errors: "Wrong Email Id" });
-  }
+  const user = await Users.findOne({ email: req.body.email });
+  if (!user) return res.json({ success: false, errors: "Wrong Email Id" });
+
+  const isMatch = await bcrypt.compare(req.body.password, user.password);
+  if (!isMatch) return res.json({ success: false, error: "Wrong Password" });
+
+  const token = jwt.sign({ user: { id: user._id } }, process.env.JWT_SECRET);
+  res.json({ success: true, token });
 });
 
-// ========== Forgot Password (Send Reset Link) ==========
+// Forgot Password
 app.post('/forgot-password', async (req, res) => {
   const { email } = req.body;
   const user = await Users.findOne({ email });
   if (!user) return res.json({ success: false, message: "Email not registered" });
 
   const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '15m' });
-  const resetLink = `http://localhost:3000/reset-password/${token}`;
+
+  // ✅ Use frontend deployment URL in reset link
+  const resetLink = `https://e-commerce-web-frontend-hs4r.onrender.com/reset-password/${token}`;
 
   try {
     await transporter.sendMail({
@@ -157,14 +160,13 @@ app.post('/forgot-password', async (req, res) => {
   }
 });
 
-// ========== Reset Password ==========
+// Reset Password
 app.post('/reset-password', async (req, res) => {
   const { token, newPassword } = req.body;
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const userId = decoded.id;
-    const user = await Users.findById(userId);
+    const user = await Users.findById(decoded.id);
     if (!user) return res.status(400).json({ success: false, message: "User not found" });
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
@@ -177,7 +179,7 @@ app.post('/reset-password', async (req, res) => {
   }
 });
 
-// ========== Auth Middleware ==========
+// Auth Middleware
 const fetchUser = async (req, res, next) => {
   const token = req.header('auth-token');
   if (!token) return res.status(401).send({ errors: "Please authenticate using a valid token" });
@@ -191,10 +193,10 @@ const fetchUser = async (req, res, next) => {
   }
 };
 
-// ========== Product Routes ==========
+// Product Routes
 app.post('/addproduct', async (req, res) => {
-  let products = await Product.find({});
-  let id = products.length > 0 ? products[products.length - 1].id + 1 : 1;
+  const products = await Product.find({});
+  const id = products.length > 0 ? products[products.length - 1].id + 1 : 1;
 
   const product = new Product({ id, ...req.body });
   await product.save();
@@ -207,44 +209,44 @@ app.post('/removeproduct', async (req, res) => {
 });
 
 app.get('/allproducts', async (req, res) => {
-  let products = await Product.find({});
+  const products = await Product.find({});
   res.json(products);
 });
 
 app.get('/newcollections', async (req, res) => {
-  let products = await Product.find({});
-  let newcollection = products.slice(1).slice(-8);
+  const products = await Product.find({});
+  const newcollection = products.slice(1).slice(-8);
   res.send(newcollection);
 });
 
 app.get('/popularinwomen', async (req, res) => {
-  let products = await Product.find({ category: "women" });
-  let popular = products.slice(0, 4);
+  const products = await Product.find({ category: "women" });
+  const popular = products.slice(0, 4);
   res.send(popular);
 });
 
-// ========== Cart Routes ==========
+// Cart Routes
 app.post('/addtocart', fetchUser, async (req, res) => {
-  let userData = await Users.findOne({ _id: req.user.id });
+  const userData = await Users.findById(req.user.id);
   userData.cartData[req.body.itemId] += 1;
-  await Users.findOneAndUpdate({ _id: req.user.id }, { cartData: userData.cartData });
+  await Users.findByIdAndUpdate(req.user.id, { cartData: userData.cartData });
   res.json({ success: true });
 });
 
 app.post('/removefromcart', fetchUser, async (req, res) => {
-  let userData = await Users.findOne({ _id: req.user.id });
+  const userData = await Users.findById(req.user.id);
   if (userData.cartData[req.body.itemId] > 0)
     userData.cartData[req.body.itemId] -= 1;
-  await Users.findOneAndUpdate({ _id: req.user.id }, { cartData: userData.cartData });
+  await Users.findByIdAndUpdate(req.user.id, { cartData: userData.cartData });
   res.json({ success: true });
 });
 
 app.post('/getcart', fetchUser, async (req, res) => {
-  let userData = await Users.findOne({ _id: req.user.id });
+  const userData = await Users.findById(req.user.id);
   res.json(userData.cartData);
 });
 
-// ========== Start Server ==========
+// Start Server
 app.listen(port, () => {
   console.log(`✅ Server running on http://localhost:${port}`);
 });
