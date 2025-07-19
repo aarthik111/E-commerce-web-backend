@@ -11,7 +11,7 @@ const bcrypt = require("bcrypt");
 const app = express();
 const port = process.env.PORT || 4000;
 
-// ✅ CORS setup with deployed frontend & admin URLs
+// ✅ CORS: Allow frontend + admin URLs
 app.use(cors({
   origin: [
     'https://e-commerce-web-frontend-hs4r.onrender.com',
@@ -19,13 +19,14 @@ app.use(cors({
   ],
   credentials: true
 }));
+app.options('*', cors()); // For preflight requests
 
 app.use(express.json());
 
-// MongoDB
+// ✅ MongoDB connection
 mongoose.connect(process.env.MONGODB_URI);
 
-// Email Transporter
+// ✅ Email transporter using Brevo
 const transporter = nodemailer.createTransport({
   host: 'smtp-relay.brevo.com',
   port: 587,
@@ -41,7 +42,7 @@ const transporter = nodemailer.createTransport({
 
 const otpStore = new Map();
 
-// Image Upload Setup
+// ✅ Image Uploads (⚠️ Render storage is not persistent!)
 const storage = multer.diskStorage({
   destination: './upload/images',
   filename: (req, file, cb) => {
@@ -52,13 +53,14 @@ const upload = multer({ storage });
 app.use('/images', express.static('upload/images'));
 
 app.post("/upload", upload.single('product'), (req, res) => {
+  const host = req.protocol + '://' + req.get('host');
   res.json({
     success: 1,
-    image_url: `${req.protocol}://${req.get('host')}/images/${req.file.filename}`
+    image_url: `${host}/images/${req.file.filename}`
   });
 });
 
-// Mongoose Models
+// ✅ MongoDB Schemas
 const Product = mongoose.model("Product", {
   id: Number,
   name: String,
@@ -78,29 +80,27 @@ const Users = mongoose.model("Users", {
   date: { type: Date, default: Date.now }
 });
 
-// Send OTP
+// ✅ Send OTP
 app.post('/send-otp', async (req, res) => {
   const { email } = req.body;
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
   const expiresAt = Date.now() + 5 * 60 * 1000;
   otpStore.set(email, { otp, expiresAt });
 
-  const mailOptions = {
-    from: process.env.SENDER_EMAIL,
-    to: email,
-    subject: 'OTP Verification',
-    text: `Your OTP is ${otp}`
-  };
-
   try {
-    await transporter.sendMail(mailOptions);
+    await transporter.sendMail({
+      from: process.env.SENDER_EMAIL,
+      to: email,
+      subject: 'OTP Verification',
+      text: `Your OTP is ${otp}`
+    });
     res.json({ success: true, message: "OTP sent to email" });
   } catch (err) {
     res.status(500).json({ success: false, message: "Failed to send OTP" });
   }
 });
 
-// Verify OTP & Signup
+// ✅ Verify OTP & Signup
 app.post('/verify-otp-signup', async (req, res) => {
   const { name, email, password, otp } = req.body;
   const otpData = otpStore.get(email);
@@ -113,8 +113,7 @@ app.post('/verify-otp-signup', async (req, res) => {
   if (existingUser) return res.status(400).json({ success: false, message: "User already exists" });
 
   const hashedPassword = await bcrypt.hash(password, 10);
-  const cart = {};
-  for (let i = 0; i < 300; i++) cart[i] = 0;
+  const cart = {}; for (let i = 0; i < 300; i++) cart[i] = 0;
 
   const user = new Users({ name, email, password: hashedPassword, cartData: cart });
   await user.save();
@@ -124,7 +123,7 @@ app.post('/verify-otp-signup', async (req, res) => {
   res.json({ success: true, token });
 });
 
-// Login
+// ✅ Login
 app.post('/login', async (req, res) => {
   const user = await Users.findOne({ email: req.body.email });
   if (!user) return res.json({ success: false, errors: "Wrong Email Id" });
@@ -136,15 +135,13 @@ app.post('/login', async (req, res) => {
   res.json({ success: true, token });
 });
 
-// Forgot Password
+// ✅ Forgot Password
 app.post('/forgot-password', async (req, res) => {
   const { email } = req.body;
   const user = await Users.findOne({ email });
   if (!user) return res.json({ success: false, message: "Email not registered" });
 
   const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '15m' });
-
-  // ✅ Use frontend deployment URL in reset link
   const resetLink = `https://e-commerce-web-frontend-hs4r.onrender.com/reset-password/${token}`;
 
   try {
@@ -160,7 +157,7 @@ app.post('/forgot-password', async (req, res) => {
   }
 });
 
-// Reset Password
+// ✅ Reset Password
 app.post('/reset-password', async (req, res) => {
   const { token, newPassword } = req.body;
 
@@ -179,7 +176,7 @@ app.post('/reset-password', async (req, res) => {
   }
 });
 
-// Auth Middleware
+// ✅ Auth Middleware
 const fetchUser = async (req, res, next) => {
   const token = req.header('auth-token');
   if (!token) return res.status(401).send({ errors: "Please authenticate using a valid token" });
@@ -193,7 +190,7 @@ const fetchUser = async (req, res, next) => {
   }
 };
 
-// Product Routes
+// ✅ Product Routes
 app.post('/addproduct', async (req, res) => {
   const products = await Product.find({});
   const id = products.length > 0 ? products[products.length - 1].id + 1 : 1;
@@ -225,7 +222,7 @@ app.get('/popularinwomen', async (req, res) => {
   res.send(popular);
 });
 
-// Cart Routes
+// ✅ Cart Routes
 app.post('/addtocart', fetchUser, async (req, res) => {
   const userData = await Users.findById(req.user.id);
   userData.cartData[req.body.itemId] += 1;
@@ -246,7 +243,7 @@ app.post('/getcart', fetchUser, async (req, res) => {
   res.json(userData.cartData);
 });
 
-// Start Server
+// ✅ Start server
 app.listen(port, () => {
   console.log(`✅ Server running on http://localhost:${port}`);
 });
