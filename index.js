@@ -7,11 +7,13 @@ const path = require("path");
 const cors = require("cors");
 const nodemailer = require("nodemailer");
 const bcrypt = require("bcrypt");
+const cloudinary = require("cloudinary").v2;
+const { CloudinaryStorage } = require("multer-storage-cloudinary");
 
 const app = express();
 const port = process.env.PORT || 4000;
 
-// ✅ CORS: Allow frontend + admin URLs
+// ✅ CORS setup
 app.use(cors({
   origin: [
     'https://e-commerce-web-frontend-hs4r.onrender.com',
@@ -19,14 +21,13 @@ app.use(cors({
   ],
   credentials: true
 }));
-app.options('*', cors()); // For preflight requests
-
+app.options('*', cors());
 app.use(express.json());
 
-// ✅ MongoDB connection
+// ✅ Connect to MongoDB
 mongoose.connect(process.env.MONGODB_URI);
 
-// ✅ Email transporter using Brevo
+// ✅ Setup email transporter
 const transporter = nodemailer.createTransport({
   host: 'smtp-relay.brevo.com',
   port: 587,
@@ -39,24 +40,30 @@ const transporter = nodemailer.createTransport({
     rejectUnauthorized: false
   }
 });
-
 const otpStore = new Map();
 
-// ✅ Image Uploads (⚠️ Render storage is not persistent!)
-const storage = multer.diskStorage({
-  destination: './upload/images',
-  filename: (req, file, cb) => {
-    cb(null, `${file.fieldname}_${Date.now()}${path.extname(file.originalname)}`);
+// ✅ Cloudinary Config
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
+
+// ✅ Cloudinary Storage Setup
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: "ecommerce_images",
+    allowed_formats: ["jpg", "png", "jpeg"]
   }
 });
 const upload = multer({ storage });
-app.use('/images', express.static('upload/images'));
 
+// ✅ Image Upload Route
 app.post("/upload", upload.single('product'), (req, res) => {
-  const host = req.protocol + '://' + req.get('host');
   res.json({
     success: 1,
-    image_url: `${host}/images/${req.file.filename}`
+    image_url: req.file.path
   });
 });
 
@@ -80,7 +87,7 @@ const Users = mongoose.model("Users", {
   date: { type: Date, default: Date.now }
 });
 
-// ✅ Send OTP
+// ✅ Send OTP Route
 app.post('/send-otp', async (req, res) => {
   const { email } = req.body;
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
@@ -100,7 +107,7 @@ app.post('/send-otp', async (req, res) => {
   }
 });
 
-// ✅ Verify OTP & Signup
+// ✅ Verify OTP & Signup Route
 app.post('/verify-otp-signup', async (req, res) => {
   const { name, email, password, otp } = req.body;
   const otpData = otpStore.get(email);
@@ -113,17 +120,19 @@ app.post('/verify-otp-signup', async (req, res) => {
   if (existingUser) return res.status(400).json({ success: false, message: "User already exists" });
 
   const hashedPassword = await bcrypt.hash(password, 10);
-  const cart = {}; for (let i = 0; i < 300; i++) cart[i] = 0;
+  const cart = {};
+  for (let i = 0; i < 300; i++) cart[i] = 0;
 
   const user = new Users({ name, email, password: hashedPassword, cartData: cart });
   await user.save();
+
   otpStore.delete(email);
 
   const token = jwt.sign({ user: { id: user._id } }, process.env.JWT_SECRET);
   res.json({ success: true, token });
 });
 
-// ✅ Login
+// ✅ Login Route
 app.post('/login', async (req, res) => {
   const user = await Users.findOne({ email: req.body.email });
   if (!user) return res.json({ success: false, errors: "Wrong Email Id" });
@@ -135,7 +144,7 @@ app.post('/login', async (req, res) => {
   res.json({ success: true, token });
 });
 
-// ✅ Forgot Password
+// ✅ Forgot Password Route
 app.post('/forgot-password', async (req, res) => {
   const { email } = req.body;
   const user = await Users.findOne({ email });
@@ -157,10 +166,9 @@ app.post('/forgot-password', async (req, res) => {
   }
 });
 
-// ✅ Reset Password
+// ✅ Reset Password Route
 app.post('/reset-password', async (req, res) => {
   const { token, newPassword } = req.body;
-
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const user = await Users.findById(decoded.id);
@@ -176,7 +184,7 @@ app.post('/reset-password', async (req, res) => {
   }
 });
 
-// ✅ Auth Middleware
+// ✅ Middleware to authenticate users
 const fetchUser = async (req, res, next) => {
   const token = req.header('auth-token');
   if (!token) return res.status(401).send({ errors: "Please authenticate using a valid token" });
@@ -190,11 +198,10 @@ const fetchUser = async (req, res, next) => {
   }
 };
 
-// ✅ Product Routes
+// ✅ Product Management Routes
 app.post('/addproduct', async (req, res) => {
   const products = await Product.find({});
   const id = products.length > 0 ? products[products.length - 1].id + 1 : 1;
-
   const product = new Product({ id, ...req.body });
   await product.save();
   res.json({ success: true, name: req.body.name });
@@ -243,7 +250,7 @@ app.post('/getcart', fetchUser, async (req, res) => {
   res.json(userData.cartData);
 });
 
-// ✅ Start server
+// ✅ Start the Server
 app.listen(port, () => {
   console.log(`✅ Server running on http://localhost:${port}`);
 });
