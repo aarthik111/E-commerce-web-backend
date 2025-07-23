@@ -250,6 +250,11 @@ app.post('/getcart', fetchUser, async (req, res) => {
   res.json(userData.cartData);
 });
 
+//server start
+app.get("/", (req, res) => {
+  res.send("✅ E-commerce Backend API is running...");
+});
+
 // ✅ Start the Server
 app.listen(port, () => {
   console.log(`✅ Server running on http://localhost:${port}`);
