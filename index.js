@@ -16,8 +16,8 @@ const port = process.env.PORT || 4000;
 // ✅ CORS setup
 app.use(cors({
   origin: [
-    'https://e-commerce-web-frontend-hs4r.onrender.com',
-    'https://e-commerce-web-admin-e9pb.onrender.com'
+    'https://uptrendforyou.netlify.app',
+    'https://authadminpanel.netlify.app'
   ],
   credentials: true
 }));
