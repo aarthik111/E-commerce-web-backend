@@ -151,7 +151,7 @@ app.post('/forgot-password', async (req, res) => {
   if (!user) return res.json({ success: false, message: "Email not registered" });
 
   const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '15m' });
-  const resetLink = `e-commerce-web-backend-production.up.railway.app/reset-password/${token}`;
+  const resetLink = `https://uptrendforyou.netlify.app/reset-password/${token}`;
 
   try {
     await transporter.sendMail({
