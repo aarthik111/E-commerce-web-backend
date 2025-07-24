@@ -207,6 +207,20 @@ app.post('/addproduct', async (req, res) => {
   res.json({ success: true, name: req.body.name });
 });
 
+app.put('/updateproduct', async (req, res) => {
+  const { id, updatedProduct } = req.body;
+  try {
+    const updated = await Product.findOneAndUpdate({ id }, updatedProduct, { new: true });
+    if (updated) {
+      res.json({ success: true, updatedProduct: updated });
+    } else {
+      res.status(404).json({ success: false, message: "Product not found" });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
 app.post('/removeproduct', async (req, res) => {
   await Product.findOneAndDelete({ id: req.body.id });
   res.json({ success: true });
